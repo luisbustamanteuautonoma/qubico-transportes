@@ -9,16 +9,6 @@ class UserProvider with ChangeNotifier {
   Future<void> fetchUsers() async {
     final data = await DatabaseService.instance.queryAll('users');
     _users = data.map((map) => User.fromMap(map)).toList();
-    if (_users.isEmpty) {
-      // Default users
-      _users = [
-        User(id: '12345678-9', fullName: 'Juan Perez', email: 'juan@qubico.cl', role: UserRole.conductor),
-        User(id: '98765432-1', fullName: 'Admin', email: 'admin@qubico.cl', role: UserRole.admin),
-      ];
-      for (var u in _users) {
-        await DatabaseService.instance.insert('users', u.toMap());
-      }
-    }
     notifyListeners();
   }
 

@@ -16,12 +16,6 @@ class VehicleProvider with ChangeNotifier {
     try {
       final data = await DatabaseService.instance.queryAll('vehicles');
       _vehicles = data.map((e) => Vehicle.fromMap(e)).toList();
-
-      // If DB is empty, provide some default ones
-      if (_vehicles.isEmpty) {
-        await addVehicle(Vehicle(name: 'Furgón Pequeño', patente: 'AB-CD-12', maxWeight: 300, driverName: 'Conductor 1'));
-        await addVehicle(Vehicle(name: 'Camioneta Mediana', patente: 'WX-YZ-99', maxWeight: 800, driverName: 'Conductor 2'));
-      }
     } catch (e) {
       debugPrint('Error fetching vehicles: $e');
     } finally {

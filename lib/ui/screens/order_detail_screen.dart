@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:signature/signature.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../models/order_model.dart';
+import '../../models/client_model.dart';
 import '../../providers/order_provider.dart';
+import '../../providers/client_provider.dart';
 import '../theme/app_theme.dart';
-import 'map_screen.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final Order order;
@@ -29,6 +29,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   ];
 
   late SignatureController _signatureController;
+  File? _capturedImage;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -38,6 +40,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       penColor: AppTheme.primaryBlue,
       exportBackgroundColor: Colors.white,
     );
+    _signatureController.addListener(() {
+      setState(() {});
+    });
   }
 
   @override
@@ -46,200 +51,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _launchGoogleMaps() async {
-    final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent("${widget.order.address}, Santiago, Chile")}');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir Google Maps')));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Detalle de Pedido #${widget.order.id}'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoSection(),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _launchGoogleMaps,
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('GOOGLE MAPS'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      backgroundColor: AppTheme.primaryBlue,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => MapScreen(selectedOrder: widget.order)),
-                      );
-                    },
-                    icon: const Icon(Icons.location_on),
-                    label: const Text('MAPA QÚBICO'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      foregroundColor: AppTheme.primaryBlue,
-                      side: const BorderSide(color: AppTheme.primaryBlue),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (!widget.isAdmin) ...[
-              const SizedBox(height: 32),
-              const Text(
-                'ACCIONES DE ENTREGA',
-                style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
-              ),
-              const Divider(),
-              const SizedBox(height: 16),
-              if (widget.order.status != 'Entregado' && widget.order.status != 'Incidencia') ...[
-                ElevatedButton.icon(
-                  onPressed: () => _updateStatus('En camino'),
-                  icon: const Icon(Icons.directions_car),
-                  label: const Text('MARCAR "EN CAMINO"'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    backgroundColor: AppTheme.accentOrange,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  onPressed: () => _showSignatureDialog('Entregado'),
-                  icon: const Icon(Icons.check_circle),
-                  label: const Text('MARCAR "ENTREGADO"'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    backgroundColor: Colors.green,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  onPressed: () => _showIncidentDialog(),
-                  icon: const Icon(Icons.warning),
-                  label: const Text('REPORTAR "INCIDENCIA"'),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    backgroundColor: AppTheme.errorColor,
-                  ),
-                ),
-              ] else ...[
-                Center(
-                  child: Text(
-                    'Este pedido ya ha sido procesado.',
-                    style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey[600]),
-                  ),
-                ),
-              ],
-            ] else if (widget.order.status == 'Entregado' || widget.order.status == 'Incidencia') ...[
-              const SizedBox(height: 32),
-              const Text(
-                'DETALLES DE RESOLUCIÓN',
-                style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
-              ),
-              const Divider(),
-              const SizedBox(height: 16),
-              if (widget.order.incidentReason != null)
-                _buildInfoRow(Icons.warning, 'Motivo de Incidencia', widget.order.incidentReason!),
-              if (widget.order.deliveryTime != null)
-                _buildInfoRow(Icons.access_time_filled, 'Hora de Resolución', widget.order.deliveryTime!.toLocal().toString().split('.')[0]),
-              if (widget.order.signaturePath != null)
-                _buildInfoRow(Icons.draw, 'Firma Digital', 'Firma guardada en dispositivo'),
-              if (widget.order.evidencePath != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Evidencia Fotográfica', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Image.file(File(widget.order.evidencePath!), height: 150, fit: BoxFit.cover),
-                    ],
-                  ),
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoRow(Icons.location_on, 'Dirección', widget.order.address),
-            _buildInfoRow(Icons.access_time, 'Ventana Horaria', widget.order.timeWindow),
-            _buildInfoRow(Icons.inventory, 'Tipo de Carga', widget.order.loadType),
-            _buildInfoRow(Icons.monitor_weight, 'Peso', '${widget.order.weight} kg'),
-            _buildInfoRow(Icons.straighten, 'Dimensiones', '${widget.order.height}x${widget.order.length}x${widget.order.width} cm'),
-            if (widget.isAdmin) ...[
-              const Divider(),
-              const SizedBox(height: 8),
-              _buildInfoRow(Icons.person, 'RUT Cliente', widget.order.clientId),
-              _buildInfoRow(Icons.local_shipping, 'Conductor Asignado', widget.order.driverId ?? 'No asignado'),
-              _buildInfoRow(Icons.calendar_today, 'Fecha Programada', '${widget.order.scheduledDate.day}/${widget.order.scheduledDate.month}/${widget.order.scheduledDate.year}'),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.primaryBlue, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  File? _capturedImage;
-  final ImagePicker _picker = ImagePicker();
-
   Future<void> _pickImage() async {
-    // RNF9: Image quality and dimensions to keep size < 500KB
     final XFile? photo = await _picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 50, // High compression
+      imageQuality: 50,
       maxWidth: 1024,
       maxHeight: 1024,
     );
-
     if (photo != null) {
       setState(() {
         _capturedImage = File(photo.path);
@@ -261,85 +79,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     Navigator.pop(context);
   }
 
-  void _showSignatureDialog(String status) {
-    // Reset image for this flow
-    _capturedImage = null;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Firma Digital de Recepción'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.maxFinite,
-                height: 200,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Signature(
-                  controller: _signatureController,
-                  backgroundColor: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  TextButton.icon(
-                    onPressed: () => _signatureController.clear(),
-                    icon: const Icon(Icons.clear),
-                    label: const Text('LIMPIAR'),
-                  ),
-                  TextButton.icon(
-                    onPressed: () async {
-                      await _pickImage();
-                      setDialogState(() {}); // Refresh dialog UI
-                    },
-                    icon: const Icon(Icons.camera_alt),
-                    label: Text(_capturedImage == null ? 'AÑADIR FOTO' : 'FOTO CAPTURADA'),
-                  ),
-                ],
-              ),
-              if (_capturedImage != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Image.file(_capturedImage!, height: 80, fit: BoxFit.cover),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
-          ElevatedButton(
-            onPressed: () async {
-              if (_signatureController.isNotEmpty) {
-                final path = _capturedImage?.path;
-                Navigator.pop(context);
-                _updateStatus(status, 
-                  signaturePath: 'simulated_path/signature.png',
-                  evidencePath: path,
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('La firma es obligatoria (RF9)')),
-                );
-              }
-            },
-            child: const Text('CONFIRMAR ENTREGA'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showIncidentDialog() {
     _capturedImage = null;
     _selectedIncidentReason = null;
-    
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -354,12 +96,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   isExpanded: true,
                   hint: const Text('Seleccionar motivo'),
                   value: _selectedIncidentReason,
-                  items: _incidentReasons.map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
+                  items: _incidentReasons.map((String value) => DropdownMenuItem<String>(value: value, child: Text(value))).toList(),
                   onChanged: (val) => setDialogState(() => _selectedIncidentReason = val),
                   decoration: const InputDecoration(labelText: 'Motivo'),
                 ),
@@ -367,39 +104,30 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 if (_capturedImage == null)
                   ElevatedButton.icon(
                     onPressed: () async {
-                      await _pickImage();
-                      setDialogState(() {});
+                      final XFile? photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 50);
+                      if (photo != null) {
+                        setDialogState(() => _capturedImage = File(photo.path));
+                        setState(() => _capturedImage = File(photo.path)); // update main state too
+                      }
                     },
                     icon: const Icon(Icons.camera_alt),
                     label: const Text('CAPTURAR FOTO (OBLIGATORIO)'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.errorColor,
-                      minimumSize: const Size(double.infinity, 50),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor, minimumSize: const Size(double.infinity, 50)),
                   )
                 else
                   Column(
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(_capturedImage!, height: 150, width: double.infinity, fit: BoxFit.cover),
-                      ),
+                      ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(_capturedImage!, height: 150, width: double.infinity, fit: BoxFit.cover)),
                       TextButton.icon(
                         onPressed: () async {
-                          await _pickImage();
-                          setDialogState(() {});
+                          final XFile? photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 50);
+                          if (photo != null) setDialogState(() => _capturedImage = File(photo.path));
                         },
                         icon: const Icon(Icons.refresh),
                         label: const Text('REPETIR FOTO'),
                       ),
                     ],
                   ),
-                const SizedBox(height: 12),
-                const Text(
-                  'RF10: El registro de incidencia requiere una fotografía obligatoria.',
-                  style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
               ],
             ),
           ),
@@ -412,15 +140,197 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       final path = _capturedImage!.path;
                       final reason = _selectedIncidentReason;
                       Navigator.pop(context);
-                      _updateStatus(
-                        'Incidencia',
-                        incidentReason: reason,
-                        evidencePath: path,
-                      );
+                      _updateStatus('Incidencia', incidentReason: reason, evidencePath: path);
                     },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
               child: const Text('REPORTAR'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final clientProvider = context.read<ClientProvider>();
+    Client client;
+    try {
+      client = clientProvider.clients.firstWhere((c) => c.rut == widget.order.clientId);
+    } catch (e) {
+      client = Client(rut: widget.order.clientId, name: 'Cliente Desconocido', phone: '', email: '', billingAddress: '');
+    }
+
+    final isReadOnly = widget.isAdmin || widget.order.status == 'Entregado' || widget.order.status == 'Incidencia';
+    final bool canConfirm = _capturedImage != null && _signatureController.isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Cierre de Entrega', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text('Pedido #${widget.order.id}', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          ],
+        ),
+        backgroundColor: AppTheme.primaryBlue,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Client Card
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[300]!)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(client.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppTheme.primaryBlue)),
+                    const SizedBox(height: 4),
+                    Text(widget.order.address, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            
+            // Photo Evidence
+            Row(
+              children: const [
+                Icon(Icons.camera_alt_outlined, color: AppTheme.primaryBlue, size: 20),
+                SizedBox(width: 8),
+                Text('Evidencia Fotográfica', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (isReadOnly && widget.order.evidencePath != null)
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.file(File(widget.order.evidencePath!), width: double.infinity, height: 200, fit: BoxFit.cover))
+            else if (!isReadOnly)
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  width: double.infinity,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[400]!, style: BorderStyle.solid),
+                  ),
+                  child: _capturedImage != null
+                      ? ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.file(_capturedImage!, width: double.infinity, height: 120, fit: BoxFit.cover))
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.camera_alt_outlined, size: 32, color: AppTheme.primaryBlue),
+                            SizedBox(height: 8),
+                            Text('Capturar Foto de Entrega', style: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+                ),
+              ),
+            const SizedBox(height: 24),
+
+            // Signature
+            Row(
+              children: const [
+                Icon(Icons.draw_outlined, color: AppTheme.primaryBlue, size: 20),
+                SizedBox(width: 8),
+                Text('Firma Digital del Cliente', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (isReadOnly)
+              Container(
+                width: double.infinity,
+                height: 150,
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!)),
+                child: const Center(child: Text('Firma guardada', style: TextStyle(color: Colors.grey))),
+              )
+            else
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: 150,
+                      child: Stack(
+                        children: [
+                          if (_signatureController.isEmpty)
+                            const Center(child: Text('Firme aquí', style: TextStyle(color: Colors.grey, fontSize: 18))),
+                          Signature(
+                            controller: _signatureController,
+                            backgroundColor: Colors.transparent,
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: IconButton(
+                              icon: const Icon(Icons.clear, color: Colors.grey),
+                              onPressed: () => _signatureController.clear(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, color: Colors.grey),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('LÍNEA DE FIRMA', style: TextStyle(color: Colors.grey, fontSize: 10, letterSpacing: 1.2)),
+                    ),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 32),
+
+            // Action Buttons
+            if (!isReadOnly) ...[
+              OutlinedButton.icon(
+                onPressed: _showIncidentDialog,
+                icon: const Icon(Icons.warning_amber_rounded, size: 20),
+                label: const Text('Registrar Incidencia'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  foregroundColor: AppTheme.primaryBlue,
+                  side: BorderSide(color: Colors.grey[300]!),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  backgroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: canConfirm
+                    ? () {
+                        _updateStatus('Entregado', signaturePath: 'simulated_path', evidencePath: _capturedImage?.path);
+                      }
+                    : null,
+                icon: const Icon(Icons.check_circle_outline, size: 20),
+                label: const Text('Confirmar Entrega'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  backgroundColor: AppTheme.primaryBlue,
+                  disabledBackgroundColor: Colors.grey[300],
+                  disabledForegroundColor: Colors.grey[500],
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ] else if (widget.order.incidentReason != null) ...[
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Motivo de Incidencia:', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.errorColor)),
+              Text(widget.order.incidentReason!, style: const TextStyle(color: Colors.grey)),
+            ]
           ],
         ),
       ),

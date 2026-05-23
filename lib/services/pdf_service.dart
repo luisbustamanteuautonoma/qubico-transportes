@@ -2,13 +2,14 @@ import 'dart:io';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/order_model.dart';
 import 'package:intl/intl.dart';
 
 class PdfService {
-  static Future<void> generateDailyReport(List<Order> orders) async {
+  static Future<String> generateDailyReport(List<Order> orders) async {
     final pdf = pw.Document();
-    final dateStr = DateFormat('dd/MM/yyyy').format(DateTime.now());
+    final dateStr = DateFormat('dd/MM/yyyy').format(orders.first.scheduledDate);
 
     pdf.addPage(
       pw.MultiPage(
@@ -72,7 +73,31 @@ class PdfService {
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    final pdfBytes = await pdf.save();
+    await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
+    
+    // Save to a local file for the Reports history tab
+    final directory = await getTemporaryDirectory();
+    final sanitizeDate = dateStr.replaceAll('/', '-');
+    final file = File('${directory.path}/Reporte_Qubico_$sanitizeDate.pdf');
+    await file.writeAsBytes(pdfBytes);
+    return file.path;
+  }
+
+  static Future<String> generateCSVReport(List<Order> orders, String dateStr) async {
+    final buffer = StringBuffer();
+    // Cabecera CSV
+    buffer.writeln('ID,Cliente,Direccion,Peso,Ventana,Estado,Puntualidad');
+    for (var o in orders) {
+      final punctuality = _calculatePunctuality(o);
+      buffer.writeln('${o.id},"${o.clientId}","${o.address}",${o.weight},"${o.timeWindow}","${o.status}","$punctuality"');
+    }
+    
+    final directory = await getTemporaryDirectory();
+    final sanitizeDate = dateStr.replaceAll('/', '-');
+    final file = File('${directory.path}/Reporte_Qubico_$sanitizeDate.csv');
+    await file.writeAsString(buffer.toString());
+    return file.path;
   }
 
   static String _calculatePunctuality(Order order) {

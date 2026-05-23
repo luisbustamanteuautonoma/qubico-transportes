@@ -85,3 +85,6 @@ app.*.map.json
 *.docx
 *.pdf
 temp_docs/
+diseño/
+*.png
+*.txt

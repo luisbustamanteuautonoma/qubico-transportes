@@ -5,39 +5,57 @@ import '../../models/user_model.dart';
 import '../../utils/validators.dart';
 import '../theme/app_theme.dart';
 
-class UserManagementScreen extends StatelessWidget {
+class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
 
   @override
+  State<UserManagementScreen> createState() => _UserManagementScreenState();
+}
+
+class _UserManagementScreenState extends State<UserManagementScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Configuración de Seguridad y Perfiles'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Gestión de Cuentas'),
-              Tab(text: 'Bitácora de Auditoría'),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            _buildAccountsTab(context),
-            _buildAuditTab(context),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Configuración de Seguridad y Perfiles'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Gestión de Cuentas'),
+            Tab(text: 'Bitácora de Auditoría'),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => _showAddUserDialog(context),
-          backgroundColor: AppTheme.accentOrange,
-          child: const Icon(Icons.add),
-        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildAccountsTab(),
+          _buildAuditTab(),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddUserDialog(),
+        backgroundColor: AppTheme.accentOrange,
+        child: const Icon(Icons.add),
       ),
     );
   }
 
-  Widget _buildAccountsTab(BuildContext context) {
+  Widget _buildAccountsTab() {
     return Consumer<UserProvider>(
       builder: (context, provider, child) {
         if (provider.users.isEmpty) {
@@ -53,7 +71,7 @@ class UserManagementScreen extends StatelessWidget {
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: user.isActive ? AppTheme.primaryBlue : Colors.grey,
-                  child: Icon(Icons.person, color: Colors.white),
+                  child: const Icon(Icons.person, color: Colors.white),
                 ),
                 title: Text(user.fullName, style: TextStyle(
                   decoration: user.isActive ? TextDecoration.none : TextDecoration.lineThrough,
@@ -75,22 +93,22 @@ class UserManagementScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAuditTab(BuildContext context) {
+  Widget _buildAuditTab() {
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: [
+      children: const [
         Card(
           child: ListTile(
-            leading: const Icon(Icons.history, color: AppTheme.primaryBlue),
-            title: const Text('Auditoría del Sistema'),
-            subtitle: const Text('El usuario [Admin_Luis] modificó el [Estado_Pedido] del ID #450 de [Pendiente] a [Anulado] el día 18/05/2026 a las 14:00 hrs.'),
+            leading: Icon(Icons.history, color: AppTheme.primaryBlue),
+            title: Text('Auditoría del Sistema'),
+            subtitle: Text('El usuario [Admin_Luis] modificó el [Estado_Pedido] del ID #450 de [Pendiente] a [Anulado] el día 18/05/2026 a las 14:00 hrs.'),
           ),
         ),
       ],
     );
   }
 
-  void _showAddUserDialog(BuildContext context) {
+  void _showAddUserDialog() {
     final formKey = GlobalKey<FormState>();
     final idController = TextEditingController();
     final nameController = TextEditingController();
@@ -141,10 +159,12 @@ class UserManagementScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 DropdownButtonFormField<UserRole>(
                   value: selectedRole,
-                  items: UserRole.values.map((role) => DropdownMenuItem(
-                    value: role,
-                    child: Text(role.name.toUpperCase()),
-                  )).toList(),
+                  items: UserRole.values
+                      .where((role) => role == UserRole.admin || role == UserRole.conductor)
+                      .map((role) => DropdownMenuItem(
+                        value: role,
+                        child: Text(role == UserRole.admin ? 'ADMINISTRADOR' : 'CONDUCTOR'),
+                      )).toList(),
                   onChanged: (v) => selectedRole = v!,
                   decoration: const InputDecoration(labelText: 'Rol'),
                 ),

@@ -1,253 +1,782 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/order_provider.dart';
-import '../../services/connectivity_service.dart';
+import '../../providers/client_provider.dart';
+import '../../providers/vehicle_provider.dart';
+import '../../models/order_model.dart';
+import '../../models/client_model.dart';
+import '../../models/vehicle_model.dart';
 import '../theme/app_theme.dart';
 import 'order_detail_screen.dart';
-import 'map_screen.dart';
 import 'login_screen.dart';
+import 'map_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  Future<void> _launchGoogleMaps(String address) async {
-    final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent("$address, Santiago, Chile")}');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    }
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0;
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(
+      scheme: 'tel',
+      path: phoneNumber,
+    );
+    await launchUrl(launchUri);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Hoja de Ruta Digital'),
+        backgroundColor: AppTheme.primaryBlue,
         elevation: 0,
+        leading: const Padding(
+          padding: EdgeInsets.all(12.0),
+          child: Icon(Icons.local_shipping, color: AppTheme.accentOrange, size: 28),
+        ),
+        title: const Text(
+          'Qúbico Conductor',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => context.read<OrderProvider>().fetchOrders(),
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
           ),
         ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const UserAccountsDrawerHeader(
-              decoration: BoxDecoration(color: AppTheme.primaryBlue),
-              accountName: Text('Conductor 1', style: TextStyle(fontWeight: FontWeight.bold)),
-              accountEmail: Text('conductor1@qubico.com'),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Icon(Icons.person, color: AppTheme.primaryBlue, size: 40),
+      body: Column(
+        children: [
+          _buildConductorHeader(),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                _buildRutaTab(context),
+                _buildCargasTab(context),
+                _buildPerfilTab(context),
+              ],
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: AppTheme.accentOrange,
+        unselectedItemColor: Colors.grey,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+        unselectedLabelStyle: const TextStyle(fontSize: 12),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.location_on), label: 'Ruta'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Cargas'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConductorHeader() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: AppTheme.accentOrange.withOpacity(0.1),
+            child: const Text(
+              'JP',
+              style: TextStyle(color: AppTheme.accentOrange, fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                '¡Buen viaje, Juan!',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Conductor de Ruta',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== TABS ====================
+
+  Widget _buildRutaTab(BuildContext context) {
+    return Column(
+      children: [
+        _buildHeader(
+          context,
+          title: 'Hoja de Ruta',
+          subtitleBuilder: (orders) => '${orders.length} paradas programadas',
+        ),
+        Expanded(
+          child: _buildRouteTimeline(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCargasTab(BuildContext context) {
+    final provider = context.watch<OrderProvider>();
+    final today = DateTime.now();
+    final todaysOrders = provider.orders.where((o) => 
+      o.scheduledDate.year == today.year && 
+      o.scheduledDate.month == today.month && 
+      o.scheduledDate.day == today.day
+    ).toList();
+
+    final vehicleProvider = context.watch<VehicleProvider>();
+    Vehicle assignedVehicle;
+    try {
+      assignedVehicle = vehicleProvider.vehicles.firstWhere((v) => v.driverName == 'Juan Perez');
+    } catch (_) {
+      assignedVehicle = Vehicle(name: 'Furgón Pequeño', patente: 'AB-CD-12', maxWeight: 300.0, driverName: 'Juan Perez');
+    }
+
+    final activeOrders = todaysOrders.where((o) => o.status != 'Entregado').toList();
+    final totalWeight = activeOrders.fold<double>(0.0, (sum, order) => sum + order.weight);
+    final capacityPercentage = (totalWeight / assignedVehicle.maxWeight).clamp(0.0, 1.0);
+
+    return Column(
+      children: [
+        _buildHeader(
+          context,
+          title: 'Mis Cargas',
+          subtitleBuilder: (orders) => 'Carga actual: ${totalWeight.toStringAsFixed(1)} / ${assignedVehicle.maxWeight.toStringAsFixed(1)} kg',
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Vehicle Info & Capacity Card
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.grey[200]!),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                assignedVehicle.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppTheme.primaryBlue),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryBlue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  assignedVehicle.patente,
+                                  style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Icon(Icons.local_shipping_outlined, color: AppTheme.primaryBlue, size: 36),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Capacidad Utilizada', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                          Text(
+                            '${(capacityPercentage * 100).toStringAsFixed(1)}%',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: capacityPercentage > 0.9 ? AppTheme.errorColor : AppTheme.primaryBlue,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: capacityPercentage,
+                          minHeight: 12,
+                          backgroundColor: Colors.grey[200],
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            capacityPercentage > 0.9
+                                ? AppTheme.errorColor
+                                : capacityPercentage > 0.7
+                                    ? AppTheme.accentOrange
+                                    : Colors.green,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Carga total actual: ${totalWeight.toStringAsFixed(1)} kg. Límite máximo: ${assignedVehicle.maxWeight.toStringAsFixed(1)} kg.',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Text(
+                  'DETALLE DE CARGAS DEL DÍA',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2, color: Colors.grey),
+                ),
+              ),
+              if (todaysOrders.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Text('No hay cargas registradas para hoy.', style: TextStyle(color: Colors.grey)),
+                  ),
+                )
+              else
+                ...todaysOrders.map((order) => _buildCargoItemCard(order)).toList(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPerfilTab(BuildContext context) {
+    final provider = context.watch<OrderProvider>();
+    final today = DateTime.now();
+    final todaysOrders = provider.orders.where((o) => 
+      o.scheduledDate.year == today.year && 
+      o.scheduledDate.month == today.month && 
+      o.scheduledDate.day == today.day
+    ).toList();
+
+    final deliveredCount = todaysOrders.where((o) => o.status == 'Entregado').length;
+    final inRouteCount = todaysOrders.where((o) => o.status == 'En camino').length;
+    final incidentsCount = todaysOrders.where((o) => o.status == 'Incidencia').length;
+
+    return Column(
+      children: [
+        _buildHeader(
+          context,
+          title: 'Mi Perfil',
+          subtitleBuilder: (_) => 'Conductor de Ruta',
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Profile Identity Card
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.grey[200]!),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 36,
+                        backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
+                        child: const Text(
+                          'JP',
+                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Juan Pérez',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: AppTheme.primaryBlue),
+                            ),
+                            SizedBox(height: 4),
+                            Text('RUT: 12.345.678-9', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                            SizedBox(height: 2),
+                            Text('juan@qubico.cl', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Statistics Grid Title
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Text(
+                  'RESUMEN OPERATIVO DE HOY',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2, color: Colors.grey),
+                ),
+              ),
+
+              // 2x2 Stats Grid
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                childAspectRatio: 1.4,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                children: [
+                  _buildStatItem('Asignadas', '${todaysOrders.length}', Icons.assignment_outlined, Colors.blue),
+                  _buildStatItem('Entregadas', '$deliveredCount', Icons.check_circle_outline, Colors.green),
+                  _buildStatItem('En Tránsito', '$inRouteCount', Icons.local_shipping_outlined, AppTheme.accentOrange),
+                  _buildStatItem('Incidencias', '$incidentsCount', Icons.warning_amber_rounded, AppTheme.errorColor),
+                ],
+              ),
+
+              const SizedBox(height: 32),
+
+              // Logout Button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
+                    );
+                  },
+                  icon: const Icon(Icons.logout, color: Colors.white),
+                  label: const Text('Cerrar Sesión', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.errorColor,
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ==================== SUB-WIDGETS & BUILDERS ====================
+
+  Widget _buildHeader(BuildContext context, {required String title, required String Function(List<Order>) subtitleBuilder}) {
+    final provider = context.watch<OrderProvider>();
+    final today = DateTime.now();
+    final todaysOrders = provider.orders.where((o) => 
+      o.scheduledDate.year == today.year && 
+      o.scheduledDate.month == today.month && 
+      o.scheduledDate.day == today.day
+    ).toList();
+    
+    final List<String> months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    final dateStr = '${today.day} ${months[today.month - 1]}';
+
+    return Container(
+      padding: const EdgeInsets.only(top: 60, left: 24, right: 24, bottom: 24),
+      decoration: const BoxDecoration(
+        color: AppTheme.primaryBlue,
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              GestureDetector(
+                onTap: () {
+                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+                },
+                child: const Text('Cerrar App', style: TextStyle(color: Colors.white70, fontSize: 14)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('Hoy, $dateStr', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(title, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(subtitleBuilder(todaysOrders), style: const TextStyle(color: Colors.white70, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRouteTimeline(BuildContext context) {
+    final provider = context.watch<OrderProvider>();
+    final clientProvider = context.read<ClientProvider>();
+    
+    final today = DateTime.now();
+    final todaysOrders = provider.orders.where((o) => 
+      o.scheduledDate.year == today.year && 
+      o.scheduledDate.month == today.month && 
+      o.scheduledDate.day == today.day
+    ).toList();
+
+    if (provider.isLoading) return const Center(child: CircularProgressIndicator());
+    if (todaysOrders.isEmpty) return const Center(child: Text('No hay paradas hoy.', style: TextStyle(color: Colors.grey)));
+
+    // Find the next active order (first one that is 'Pendiente' or 'En camino')
+    int nextOrderIndex = todaysOrders.indexWhere((o) => o.status == 'Pendiente' || o.status == 'En camino');
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 24, left: 16, right: 16, bottom: 24),
+      itemCount: todaysOrders.length,
+      itemBuilder: (context, index) {
+        final order = todaysOrders[index];
+        Client client;
+        try {
+          client = clientProvider.clients.firstWhere((c) => c.rut == order.clientId);
+        } catch (e) {
+          client = Client(rut: order.clientId, name: 'Cliente Desconocido', phone: '', email: '', billingAddress: '');
+        }
+        
+        final isNext = index == nextOrderIndex;
+
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Timeline line and dot
+              Column(
+                children: [
+                  Container(
+                    width: 16,
+                    height: 16,
+                    margin: const EdgeInsets.only(top: 16),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: isNext ? AppTheme.accentOrange : Colors.grey[300]!, width: 4),
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (index < todaysOrders.length - 1)
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        color: Colors.grey[300],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              // Card
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: _buildOrderCard(order, client, isNext),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOrderCard(Order order, Client client, bool isNext) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: isNext ? 4 : 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isNext ? const BorderSide(color: AppTheme.accentOrange, width: 2) : BorderSide(color: Colors.transparent),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isNext)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: const BoxDecoration(
+                color: AppTheme.accentOrange,
+                borderRadius: BorderRadius.only(topLeft: Radius.circular(10), topRight: Radius.circular(10)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: const [
+                  Text('PRÓXIMO DESPACHO', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  Icon(Icons.navigation, color: Colors.white, size: 16),
+                ],
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.map),
-              title: const Text('Mapa General'),
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const MapScreen()));
-              },
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(client.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primaryBlue)),
+                    ),
+                    _buildStatusBadge(order.status),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.primaryBlue),
+                    const SizedBox(width: 4),
+                    Expanded(child: Text(order.address, style: const TextStyle(color: Colors.grey, fontSize: 13))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.access_time, size: 14, color: AppTheme.primaryBlue),
+                      const SizedBox(width: 4),
+                      Text(order.timeWindow, style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 12, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _makePhoneCall(client.phone),
+                        icon: const Icon(Icons.phone, size: 16),
+                        label: const Text('Llamar'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primaryBlue,
+                          side: const BorderSide(color: AppTheme.primaryBlue),
+                          backgroundColor: Colors.blue[50],
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          if (order.status == 'Entregado' || order.status == 'Incidencia') {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => OrderDetailScreen(order: order)));
+                          } else if (order.status == 'Pendiente') {
+                            context.read<OrderProvider>().updateOrderStatus(order.id!, 'En camino');
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => MapScreen(selectedOrder: order)));
+                          } else if (order.status == 'En camino') {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => OrderDetailScreen(order: order)));
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isNext ? AppTheme.accentOrange : AppTheme.primaryBlue,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Text(
+                          (order.status == 'Entregado' || order.status == 'Incidencia')
+                            ? 'Ver Resumen'
+                            : (order.status == 'Pendiente')
+                                ? 'Iniciar Entrega'
+                                : 'Terminar Entrega',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: AppTheme.errorColor),
-              title: const Text('Cerrar Sesión', style: TextStyle(color: AppTheme.errorColor)),
-              onTap: () {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (route) => false,
-                );
-              },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCargoItemCard(Order order) {
+    // Beautiful badges depending on load type
+    Color badgeColor = AppTheme.primaryBlue;
+    if (order.loadType == 'Construcción') badgeColor = AppTheme.accentOrange;
+    if (order.loadType == 'Eventos') badgeColor = Colors.purple;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Carga #${order.id}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, fontSize: 16),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    order.loadType,
+                    style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.fitness_center_outlined, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text('Peso: ', style: const TextStyle(color: Colors.grey)),
+                Text('${order.weight} kg', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.straighten_outlined, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text('Dim: ', style: const TextStyle(color: Colors.grey)),
+                Text(
+                  '${order.length} x ${order.width} x ${order.height} m',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.location_on_outlined, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    order.address,
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          StreamBuilder<ConnectivityResult>(
-            stream: ConnectivityService().connectivityStream,
-            builder: (context, snapshot) {
-              final isOffline = snapshot.data == ConnectivityResult.none;
-              if (!isOffline) return const SizedBox.shrink();
-              return Container(
-                width: double.infinity,
-                color: AppTheme.errorColor,
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.wifi_off, color: Colors.white, size: 16),
-                    SizedBox(width: 8),
-                    Text(
-                      'MODO OFFLINE ACTIVADO',
-                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          Expanded(
-            child: Consumer<OrderProvider>(
-              builder: (context, provider, child) {
-                if (provider.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final today = DateTime.now();
-                final todaysOrders = provider.orders.where((o) => 
-                  o.scheduledDate.year == today.year && 
-                  o.scheduledDate.month == today.month && 
-                  o.scheduledDate.day == today.day
-                ).toList();
-
-                if (todaysOrders.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle_outline, size: 80, color: Colors.grey.shade400),
-                        const SizedBox(height: 16),
-                        const Text('No hay paradas programadas para hoy.', style: TextStyle(fontSize: 16)),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: todaysOrders.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final order = todaysOrders[index];
-                    final statusColor = _getStatusColor(order.status);
-                    
-                    return Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(color: statusColor.withValues(alpha: 0.3), width: 1.5),
-                      ),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => OrderDetailScreen(order: order),
-                            ),
-                          );
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: statusColor.withValues(alpha: 0.1),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(Icons.location_on, color: statusColor),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          order.address,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Ventana: ${order.timeWindow}',
-                                          style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w500),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: statusColor,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      order.status.toUpperCase(),
-                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              const Divider(height: 1),
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    '${order.loadType} • ${order.weight}kg',
-                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: () => _launchGoogleMaps(order.address),
-                                    icon: const Icon(Icons.map_outlined, size: 18),
-                                    label: const Text('NAVEGAR'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.primaryBlue,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const MapScreen()),
-          );
-        },
-        label: const Text('VER MAPA GENERAL'),
-        icon: const Icon(Icons.map),
-        backgroundColor: AppTheme.primaryBlue,
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
-  Color _getStatusColor(String status) {
+  Widget _buildStatusBadge(String status) {
+    Color badgeColor;
     switch (status) {
       case 'Entregado':
-        return Colors.green;
-      case 'En camino':
-        return AppTheme.accentOrange;
+        badgeColor = Colors.green;
+        break;
       case 'Incidencia':
-        return AppTheme.errorColor;
+        badgeColor = AppTheme.errorColor;
+        break;
+      case 'En camino':
+        badgeColor = AppTheme.accentOrange;
+        break;
       default:
-        return AppTheme.primaryBlue;
+        badgeColor = Colors.grey;
     }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: badgeColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 10),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey[200]!),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: AppTheme.primaryBlue),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.grey, fontSize: 11),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

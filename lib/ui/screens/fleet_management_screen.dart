@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/vehicle_model.dart';
 import '../../providers/vehicle_provider.dart';
+import '../../models/user_model.dart';
+import '../../providers/user_provider.dart';
 import '../theme/app_theme.dart';
 
 class FleetManagementScreen extends StatelessWidget {
@@ -12,7 +14,20 @@ class FleetManagementScreen extends StatelessWidget {
     final nameController = TextEditingController(text: vehicle?.name ?? '');
     final patenteController = TextEditingController(text: vehicle?.patente ?? '');
     final weightController = TextEditingController(text: vehicle?.maxWeight.toString() ?? '');
-    final driverController = TextEditingController(text: vehicle?.driverName ?? '');
+    
+    final users = context.read<UserProvider>().users;
+    final drivers = users.where((u) => u.isActive && u.role == UserRole.conductor).toList();
+    
+    String? selectedDriverName = vehicle?.driverName;
+    if (selectedDriverName != null && selectedDriverName.isEmpty) {
+      selectedDriverName = null;
+    }
+    
+    // Si el conductor asignado previamente ya no existe o está inactivo, lo agregamos temporalmente para evitar error visual
+    bool driverExists = drivers.any((d) => d.fullName == selectedDriverName);
+    if (selectedDriverName != null && !driverExists) {
+      drivers.add(User(id: 'temp', fullName: selectedDriverName, email: '', role: UserRole.conductor));
+    }
 
     showDialog(
       context: context,
@@ -42,10 +57,19 @@ class FleetManagementScreen extends StatelessWidget {
                 validator: (v) => v!.isEmpty ? 'Requerido' : null,
               ),
               const SizedBox(height: 8),
-              TextFormField(
-                controller: driverController,
+              DropdownButtonFormField<String>(
+                value: selectedDriverName,
                 decoration: const InputDecoration(labelText: 'Conductor Asignado'),
-                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                items: drivers.map((driver) {
+                  return DropdownMenuItem<String>(
+                    value: driver.fullName,
+                    child: Text(driver.fullName),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  selectedDriverName = value;
+                },
+                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
               ),
             ],
           ),
@@ -60,7 +84,7 @@ class FleetManagementScreen extends StatelessWidget {
                   name: nameController.text,
                   patente: patenteController.text.toUpperCase(),
                   maxWeight: double.tryParse(weightController.text) ?? 0.0,
-                  driverName: driverController.text,
+                  driverName: selectedDriverName ?? '',
                 );
 
                 if (vehicle == null) {

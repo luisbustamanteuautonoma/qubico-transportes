@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/order_model.dart';
 import '../../providers/order_provider.dart';
 import '../theme/app_theme.dart';
@@ -62,7 +63,12 @@ class _MapScreenState extends State<MapScreen> {
       );
       final currentLatLng = ll.LatLng(position.latitude, position.longitude);
 
-      var orders = Provider.of<OrderProvider>(context, listen: false).orders;
+      final today = DateTime.now();
+      var orders = Provider.of<OrderProvider>(context, listen: false).orders.where((o) =>
+        o.scheduledDate.year == today.year &&
+        o.scheduledDate.month == today.month &&
+        o.scheduledDate.day == today.day
+      ).toList();
       
       // Si se pasa un pedido específico, solo mostramos ese en la ruta
       if (widget.selectedOrder != null) {
@@ -272,11 +278,31 @@ class _MapScreenState extends State<MapScreen> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pop(context),
-        label: const Text('VOLVER A LISTA'),
-        icon: const Icon(Icons.list),
-        backgroundColor: AppTheme.accentOrange,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (widget.selectedOrder != null)
+            FloatingActionButton.extended(
+              heroTag: 'btn_gmaps',
+              onPressed: () async {
+                final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(widget.selectedOrder!.address + ", Santiago, Chile")}');
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+              },
+              label: const Text('Navegar con Google Maps', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              icon: const Icon(Icons.directions, color: Colors.white),
+              backgroundColor: Colors.blue,
+            ),
+          if (widget.selectedOrder != null)
+            const SizedBox(height: 16),
+          FloatingActionButton.extended(
+            heroTag: 'btn_back',
+            onPressed: () => Navigator.pop(context),
+            label: const Text('VOLVER A LISTA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            icon: const Icon(Icons.list, color: Colors.white),
+            backgroundColor: AppTheme.accentOrange,
+          ),
+        ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );

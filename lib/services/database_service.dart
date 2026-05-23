@@ -3,40 +3,46 @@ import 'package:path/path.dart';
 import '../models/order_model.dart';
 import '../models/client_model.dart';
 import '../models/user_model.dart';
+import 'security_service.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._init();
   static Database? _database;
+  Future<Database>? _databaseFuture;
 
   DatabaseService._init();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('qubico.db');
+    _databaseFuture ??= _initDB('qubico.db');
+    _database = await _databaseFuture!;
     return _database!;
   }
 
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
+    print('DEBUG QUBICO: Initializing database at path: $path');
 
     return await openDatabase(
       path,
-      version: 3,
-      onCreate: _createDB,
+      version: 5,
+      onCreate: (db, version) async {
+        print('DEBUG QUBICO: onCreate triggered for version $version');
+        await _createDB(db, version);
+      },
       onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute('''
-            CREATE TABLE vehicles (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              name TEXT NOT NULL,
-              patente TEXT NOT NULL,
-              max_weight REAL NOT NULL,
-              driver_name TEXT NOT NULL
-            )
-          ''');
-        } else if (oldVersion == 2) {
-          await db.execute('ALTER TABLE vehicles ADD COLUMN patente TEXT NOT NULL DEFAULT ""');
+        print('DEBUG QUBICO: onUpgrade triggered from $oldVersion to $newVersion');
+        if (oldVersion < 5) {
+          print('DEBUG QUBICO: Purging older tables to upgrade schema to v5...');
+          await db.execute('DROP TABLE IF EXISTS orders');
+          await db.execute('DROP TABLE IF EXISTS clients');
+          await db.execute('DROP TABLE IF EXISTS users');
+          await db.execute('DROP TABLE IF EXISTS vehicles');
+          await db.execute('DROP TABLE IF EXISTS audit_logs');
+          print('DEBUG QUBICO: All older tables dropped. Recreating with v5...');
+          await _createDB(db, 5);
+          print('DEBUG QUBICO: Recreated database successfully for v5.');
         }
       },
     );
@@ -106,6 +112,59 @@ class DatabaseService {
         new_value TEXT
       )
     ''');
+
+    // Seed default data inside a fast batch transaction
+    final batch = db.batch();
+    
+    // Default Users (Juan Perez is Conductor, Admin is Admin)
+    batch.insert('users', {
+      'id': '12345678-9',
+      'full_name': 'Juan Perez',
+      'email': 'juan@qubico.cl',
+      'role': 'conductor',
+      'is_active': 1
+    });
+    batch.insert('users', {
+      'id': '98765432-1',
+      'full_name': 'Admin',
+      'email': 'admin@qubico.cl',
+      'role': 'admin',
+      'is_active': 1
+    });
+
+    // Default Clients
+    batch.insert('clients', {
+      'rut': '12.345.678-9',
+      'name': 'Empresa Alpha',
+      'phone': '912345678',
+      'email': 'contacto@alpha.cl',
+      'billing_address': 'Providencia 123'
+    });
+    batch.insert('clients', {
+      'rut': '98.765.432-1',
+      'name': 'Logística Beta',
+      'phone': '998765432',
+      'email': 'ventas@beta.cl',
+      'billing_address': 'Las Condes 456'
+    });
+
+    // Default Vehicles aligned with active Conductor names
+    batch.insert('vehicles', {
+      'name': 'Furgón Pequeño',
+      'patente': 'AB-CD-12',
+      'max_weight': 300.0,
+      'driver_name': 'Juan Perez'
+    });
+    batch.insert('vehicles', {
+      'name': 'Camioneta Mediana',
+      'patente': 'WX-YZ-99',
+      'max_weight': 800.0,
+      'driver_name': 'Conductor 2'
+    });
+
+    print('DEBUG QUBICO: Committing seed data batch...');
+    await batch.commit(noResult: true);
+    print('DEBUG QUBICO: Seed data batch committed successfully.');
   }
 
   // Generic methods for CRUD
